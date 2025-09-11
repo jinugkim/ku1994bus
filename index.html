@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>1994 등반대 버스 - 좌석 배치</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>1994 등반대 버스 - 좌석 배치</h1>
+        </header>
+        
+        <div class="input-section">
+            <textarea id="textInput"></textarea>
+            <button id="parseButton">좌석 배치 생성</button>
+            <button id="clearButton">초기화</button>
+        </div>
+        
+        <div class="bus-container">
+            <div class="bus-header">
+                <div class="driver-area">운전석</div>
+            </div>
+            
+            <div class="bus-layout">
+                <!-- 8개 열의 좌석 (1-24번) -->
+                <div class="seat-rows">
+                    <!-- 1열 (1, 2, 3번) -->
+                    <div class="seat-row">
+                        <div class="seat-pair">
+                            <div class="seat" data-seat="1">1</div>
+                            <div class="seat" data-seat="2">2</div>
+                        </div>
+                        <div class="aisle"></div>
+                        <div class="seat single" data-seat="3">3</div>
+                    </div>
+                    
+                    <!-- 2열 (4, 5, 6번) -->
+                    <div class="seat-row">
+                        <div class="seat-pair">
+                            <div class="seat" data-seat="4">4</div>
+                            <div class="seat" data-seat="5">5</div>
+                        </div>
+                        <div class="aisle"></div>
+                        <div class="seat single" data-seat="6">6</div>
+                    </div>
+                    
+                    <!-- 3열 (7, 8, 9번) -->
+                    <div class="seat-row">
+                        <div class="seat-pair">
+                            <div class="seat" data-seat="7">7</div>
+                            <div class="seat" data-seat="8">8</div>
+                        </div>
+                        <div class="aisle"></div>
+                        <div class="seat single" data-seat="9">9</div>
+                    </div>
+                    
+                    <!-- 4열 (10, 11, 12번) -->
+                    <div class="seat-row">
+                        <div class="seat-pair">
+                            <div class="seat" data-seat="10">10</div>
+                            <div class="seat" data-seat="11">11</div>
+                        </div>
+                        <div class="aisle"></div>
+                        <div class="seat single" data-seat="12">12</div>
+                    </div>
+                    
+                    <!-- 5열 (13, 14, 15번) -->
+                    <div class="seat-row">
+                        <div class="seat-pair">
+                            <div class="seat" data-seat="13">13</div>
+                            <div class="seat" data-seat="14">14</div>
+                        </div>
+                        <div class="aisle"></div>
+                        <div class="seat single" data-seat="15">15</div>
+                    </div>
+                    
+                    <!-- 6열 (16, 17, 18번) -->
+                    <div class="seat-row">
+                        <div class="seat-pair">
+                            <div class="seat" data-seat="16">16</div>
+                            <div class="seat" data-seat="17">17</div>
+                        </div>
+                        <div class="aisle"></div>
+                        <div class="seat single" data-seat="18">18</div>
+                    </div>
+                    
+                    <!-- 7열 (19, 20, 21번) -->
+                    <div class="seat-row">
+                        <div class="seat-pair">
+                            <div class="seat" data-seat="19">19</div>
+                            <div class="seat" data-seat="20">20</div>
+                        </div>
+                        <div class="aisle"></div>
+                        <div class="seat single" data-seat="21">21</div>
+                    </div>
+                    
+                    <!-- 8열 (22, 23, 24번) -->
+                    <div class="seat-row">
+                        <div class="seat-pair">
+                            <div class="seat" data-seat="22">22</div>
+                            <div class="seat" data-seat="23">23</div>
+                        </div>
+                        <div class="aisle"></div>
+                        <div class="seat single" data-seat="24">24</div>
+                    </div>
+                </div>
+                
+                <!-- 마지막 4인석 (25, 26, 27, 28번) -->
+                <div class="back-seats">
+                    <div class="seat" data-seat="25">25</div>
+                    <div class="seat" data-seat="26">26</div>
+                    <div class="seat" data-seat="27">27</div>
+                    <div class="seat" data-seat="28">28</div>
+                </div>
+            </div>
+        </div>
+        
+        
+        <div class="statistics-section">
+            <h3>탑승지 통계</h3>
+            <div id="locationStats"></div>
+        </div>
+        
+        <div class="passenger-list">
+            <h3>승객 목록</h3>
+            <div id="passengerInfo"></div>
+        </div>
+    </div>
+    
+    <script src="script.js"></script>
+</body>
+</html>
