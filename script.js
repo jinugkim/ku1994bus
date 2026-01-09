@@ -61,28 +61,71 @@ class BusSeatManager {
          return null;
      }
      
-     // 정규식 패턴: 숫자. 이름(입금여부, 탑승지, 좌석번호)
-     // 쉼표와 공백을 혼용한 경우도 모두 처리
-     // 좌석번호 뒤의 특수기호(!, ?, *, 등) 제거
-     // 예: "1. 김진욱(입완, 양재, 1)" 또는 "7. 정지은(입완 양재 12)" 또는 "20.김민정 (입완, 사당, 19!!!)"
-     // "21. 홍길동(입완, 양재 13)" 또는 "22. 이순신(입완 양재, 14)"
-     const flexiblePattern = /(\d+)\.\s*([^(]+)\(([^,)]+)[,\s]+([^,)]+)[,\s]+(\d+)[^\d)]*\)/;
-     
-     let match = trimmedLine.match(flexiblePattern);
+     // 기본 패턴: 숫자. 이름(정보들)
+     // 괄호 안의 정보를 추출한 후 순서에 상관없이 파싱
+     const basicPattern = /(\d+)\.\s*([^(]+)\(([^)]+)\)/;
+     let match = trimmedLine.match(basicPattern);
  
      if (match) {
-         // 완전한 정보가 있는 경우
-         const [, orderNum, name, paymentStatus, location, seatNum] = match;
- 
-         // 입금 상태 정규화
-         const normalizedPaymentStatus = this.normalizePaymentStatus(paymentStatus.trim());
+         const [, orderNum, name, infoString] = match;
+         
+         // 괄호 안의 정보를 쉼표, 마침표, 공백으로 분리
+         // 단, 숫자 뒤의 마침표는 소수점일 수 있으므로 주의
+         const infoParts = infoString.split(/[,.\s]+/).map(part => part.trim()).filter(part => part.length > 0);
+         
+         // 각 정보를 분류
+         let paymentStatus = 'pending';
+         let location = '미지정';
+         let seatNumber = null;
+         
+                for (const part of infoParts) {
+                    // 좌석 미지정 키워드 확인
+                    const unassignedKeywords = [
+                        '미정', '미배정', 
+                        '아무곳', '아무데', '아무대',
+                        '상관없', 
+                        '맘대로', '마음대로',
+                        '임의', '임의배정',
+                        '없음',
+                        '^^', '?', 'x', 'X'
+                    ];
+                    if (unassignedKeywords.some(keyword => part === keyword || part.includes(keyword))) {
+                        // 좌석 미지정으로 표시 (null 유지)
+                        continue;
+                    }
+                    
+                    // 좌석번호 확인 (숫자만 있고 뒤에 특수기호가 있을 수 있음)
+                    const seatMatch = part.match(/^(\d+)[^\d]*$/);
+                    if (seatMatch && seatNumber === null) {
+                        const num = parseInt(seatMatch[1]);
+                        if (num >= 1 && num <= 28) {
+                            seatNumber = num;
+                            continue;
+                        }
+                    }
+                    
+                    // 탑승지 확인 (사당, 양재, 죽전, 신갈, 복정)
+                    const validLocations = ['사당', '양재', '죽전', '신갈', '복정'];
+                    const foundLocation = validLocations.find(loc => part.includes(loc));
+                    if (foundLocation && location === '미지정') {
+                        location = foundLocation;
+                        continue;
+                    }
+                    
+                    // 입금 상태 확인
+                    const normalizedStatus = this.normalizePaymentStatus(part);
+                    if (normalizedStatus !== 'pending' || this.isPaymentStatusKeyword(part)) {
+                        paymentStatus = normalizedStatus;
+                        continue;
+                    }
+                }
          
          return {
              orderNumber: parseInt(orderNum),
              name: name.trim(),
-             paymentStatus: normalizedPaymentStatus,
-             location: location.trim(),
-             seatNumber: parseInt(seatNum)
+             paymentStatus: paymentStatus,
+             location: location,
+             seatNumber: seatNumber
          };
      }
      
@@ -92,8 +135,11 @@ class BusSeatManager {
          return null; // 빈 항목은 무시
      }
      
+     // 괄호 안에 정보가 부족한 경우 처리 (예: "1. 김진욱(입완, 양재)")
+     // 이미 위에서 처리되었으므로 seatNumber가 null이면 그대로 반환
+     
      // 이름만 있는 패턴: "숫자. 이름" (괄호가 없는 경우)
-     const nameOnlyPattern = /^(\d+)\.\s*([^\s]+)$/;
+     const nameOnlyPattern = /^(\d+)\.\s*([^\s(]+)$/;
      const nameMatch = trimmedLine.match(nameOnlyPattern);
      
      if (nameMatch) {
@@ -132,18 +178,33 @@ class BusSeatManager {
             return true;
         }
         
+        // 더하기로 시작하는 줄 (예: "   + 만항재(등산 x, 상고대 사진)")
+        if (line.trim().startsWith('+')) {
+            return true;
+        }
+        
         // URL 패턴 (예: "https://m.blog.naver.com/...")
-        if (line.startsWith('http')) {
+        if (line.startsWith('http') || line.includes('youtu.be') || line.includes('youtube.com')) {
             return true;
         }
         
-        // 계좌 정보 패턴 (예: "* 카뱅 3333-16-1619747")
-        if (line.includes('카뱅') || line.includes('계좌') || /^\d{4}-\d{2}-\d{7}/.test(line)) {
+        // YouTube 관련 텍스트
+        if (line.includes('YouTube') || line.includes('유튜브')) {
             return true;
         }
         
-        // 탑승지 정보 패턴 (예: "* 탑승(사당, 양재, 복정)")
-        if (line.includes('탑승(') || line.includes('탑승지')) {
+        // 계좌 정보 패턴 (예: "* 카뱅 3333-16-1619747" 또는 "* 금란 카뱅 3333 16 1619747")
+        if (line.includes('카뱅') || line.includes('계좌') || /\d{4}[\s-]?\d{2}[\s-]?\d{7}/.test(line)) {
+            return true;
+        }
+        
+        // 탑승지 정보 패턴 (예: "* 탑승(사당, 양재, 복정)" 또는 "* 8만원 / 사당>양재>죽전")
+        if (line.includes('탑승(') || line.includes('탑승지') || /\d+만원/.test(line)) {
+            return true;
+        }
+        
+        // 날짜 패턴 (예: "1/10,토)" - 슬래시와 요일이 포함된 경우)
+        if (/^\d+\/\d+[,\s]*[월화수목금토일]?\)/.test(line)) {
             return true;
         }
         
@@ -151,6 +212,9 @@ class BusSeatManager {
         if (!/^\d+\./.test(line)) {
             return true;
         }
+        
+        // 숫자. 으로 시작하지만 괄호가 없는 경우 (이름만 있거나 잘못된 형식)
+        // 단, 이름만 있는 경우는 허용하므로 여기서는 체크하지 않음
         
         return false;
     }
@@ -171,6 +235,12 @@ class BusSeatManager {
         
         // 기본값은 pending
         return 'pending';
+    }
+
+    isPaymentStatusKeyword(text) {
+        // 입금 상태 관련 키워드인지 확인
+        const allKeywords = ['입완', '입금완료', '완료', '입금됨', '결제완료', '예정', '입금예정', '미입금', '대기', '예약'];
+        return allKeywords.some(keyword => text.includes(keyword));
     }
 
     validateSeatNumber(seatNumber) {
@@ -198,7 +268,7 @@ class BusSeatManager {
             this.passengers = this.parsePassengerText(inputText);
 
             if (this.passengers.length === 0) {
-                alert('올바른 형식의 승객 정보를 찾을 수 없습니다.\n\n예시 형식:\n1. 김진욱(입완, 양재, 1)\n2. 나정선(예정, 사당, 3)');
+                alert('올바른 형식의 승객 정보를 찾을 수 없습니다.\n\n예시 형식 (순서 무관):\n1. 김진욱(입완, 양재, 1)\n2. 나정선(사당, 예정, 3)\n3. 박민수(5, 죽전, 입완)\n4. 이영희(신갈, 미정, 예정) ← 좌석 미지정\n5. 최철수(복정, 입완, 맘대로) ← 좌석 미지정\n6. 정민수(양재, 입완) ← 좌석번호 생략\n\n탑승지: 사당, 양재, 죽전, 신갈, 복정\n좌석 미지정: 미정, 아무곳이나, 아무대나, 맘대로, 임의배정, ^^, ? 등\n→ 미지정 시 뒷좌석부터 자동 임시 배정됩니다.');
                 return;
             }
 
@@ -217,6 +287,9 @@ class BusSeatManager {
                 return;
             }
 
+            // 미지정 좌석 자동 배정 (뒷좌석부터)
+            this.autoAssignUnspecifiedSeats();
+
             // 탑승지별 색상 할당
             this.assignLocationColors();
             
@@ -226,12 +299,51 @@ class BusSeatManager {
             this.displayPassengerList();
 
             // 성공 메시지
-            console.log(`${this.passengers.length}명의 승객 정보를 처리했습니다.`);
+            const tempCount = this.passengers.filter(p => p.isTemporaryAssignment).length;
+            if (tempCount > 0) {
+                console.log(`${this.passengers.length}명의 승객 정보를 처리했습니다. (임시 배정: ${tempCount}명)`);
+            } else {
+                console.log(`${this.passengers.length}명의 승객 정보를 처리했습니다.`);
+            }
 
         } catch (error) {
             console.error('파싱 오류:', error);
             alert('텍스트 처리 중 오류가 발생했습니다. 입력 형식을 확인해주세요.');
         }
+    }
+
+    autoAssignUnspecifiedSeats() {
+        // 미지정 승객 찾기
+        const unassignedPassengers = this.passengers.filter(p => p.seatNumber === null);
+        
+        if (unassignedPassengers.length === 0) {
+            return; // 미지정 승객이 없으면 종료
+        }
+
+        // 이미 배정된 좌석 번호 목록
+        const occupiedSeats = new Set(
+            this.passengers
+                .filter(p => p.seatNumber !== null)
+                .map(p => p.seatNumber)
+        );
+
+        // 28번부터 1번까지 역순으로 빈 좌석 찾기 (뒷좌석부터)
+        const availableSeats = [];
+        for (let seat = 28; seat >= 1; seat--) {
+            if (!occupiedSeats.has(seat)) {
+                availableSeats.push(seat);
+            }
+        }
+
+        // 미지정 승객에게 뒷좌석부터 임시 배정
+        unassignedPassengers.forEach((passenger, index) => {
+            if (index < availableSeats.length) {
+                passenger.seatNumber = availableSeats[index];
+                passenger.isTemporaryAssignment = true; // 임시 배정 표시
+            }
+        });
+
+        console.log(`${unassignedPassengers.length}명의 승객을 뒷좌석부터 임시 배정했습니다.`);
     }
 
     assignLocationColors() {
@@ -259,17 +371,29 @@ class BusSeatManager {
                     seatElement.classList.add('occupied');
                     seatElement.classList.add(passenger.paymentStatus);
                     
+                    // 임시 배정 표시
+                    if (passenger.isTemporaryAssignment) {
+                        seatElement.classList.add('temporary-assignment');
+                    }
+                    
                     // 탑승지별 색상 적용
                     const locationColor = this.locationColors[passenger.location];
                     if (locationColor) {
                         seatElement.style.backgroundColor = locationColor;
                         seatElement.style.borderColor = this.darkenColor(locationColor, 20);
                         
-                        // 입금 상태에 따른 투명도 조정
-                        if (passenger.paymentStatus === 'pending') {
-                            seatElement.style.opacity = '0.7';
+                        // 임시 배정의 경우 점선 테두리와 패턴 추가
+                        if (passenger.isTemporaryAssignment) {
+                            seatElement.style.borderStyle = 'dashed';
+                            seatElement.style.borderWidth = '3px';
+                            seatElement.style.opacity = '0.85';
                         } else {
-                            seatElement.style.opacity = '1';
+                            // 입금 상태에 따른 투명도 조정
+                            if (passenger.paymentStatus === 'pending') {
+                                seatElement.style.opacity = '0.7';
+                            } else {
+                                seatElement.style.opacity = '1';
+                            }
                         }
                     }
                     
@@ -277,7 +401,9 @@ class BusSeatManager {
                     seatElement.setAttribute('data-passenger-name', passenger.name);
                     
                     // 툴팁 추가
-                    seatElement.title = `${passenger.name}\n${passenger.paymentStatus === 'paid' ? '입금완료' : '입금예정'}\n${passenger.location}`;
+                    const statusText = passenger.paymentStatus === 'paid' ? '입금완료' : '입금예정';
+                    const assignmentText = passenger.isTemporaryAssignment ? '\n[임시 배정]' : '';
+                    seatElement.title = `${passenger.name}\n${statusText}\n${passenger.location}${assignmentText}`;
                 }
             }
         });
@@ -376,12 +502,30 @@ class BusSeatManager {
                     </div>
                     <div class="stats-group-details">
                         <div class="stat-item occupied">
-                            <div class="stat-icon">👥</div>
+                            <div class="stat-icon">✓</div>
                             <div class="stat-info">
-                                <div class="stat-number">${totalStats.total - totalStats.empty}</div>
-                                <div class="stat-label">사용중</div>
+                                <div class="stat-number">${totalStats.confirmed}</div>
+                                <div class="stat-label">확정배정</div>
                             </div>
                         </div>
+                        ${totalStats.temporary > 0 ? `
+                        <div class="stat-item temporary">
+                            <div class="stat-icon">⚡</div>
+                            <div class="stat-info">
+                                <div class="stat-number">${totalStats.temporary}</div>
+                                <div class="stat-label">임시배정</div>
+                            </div>
+                        </div>
+                        ` : ''}
+                        ${totalStats.unassigned > 0 ? `
+                        <div class="stat-item unassigned">
+                            <div class="stat-icon">❓</div>
+                            <div class="stat-info">
+                                <div class="stat-number">${totalStats.unassigned}</div>
+                                <div class="stat-label">미배정</div>
+                            </div>
+                        </div>
+                        ` : ''}
                         <div class="stat-item empty">
                             <div class="stat-icon">🪑</div>
                             <div class="stat-info">
@@ -492,17 +636,27 @@ class BusSeatManager {
         return passengers.map(passenger => {
             const statusText = passenger.paymentStatus === 'paid' ? '입금완료' : '입금예정';
             const statusClass = passenger.paymentStatus;
-            const seatText = passenger.seatNumber !== null ? `${passenger.seatNumber}번` : '미지정';
+            const isTemporary = passenger.isTemporaryAssignment;
+            const seatText = passenger.seatNumber !== null 
+                ? `${passenger.seatNumber}번${isTemporary ? ' (임시)' : ''}` 
+                : '좌석 미지정';
             const isUnspecified = passenger.seatNumber === null;
-            const itemClass = isUnspecified ? `${statusClass} unspecified` : statusClass;
+            
+            let itemClass = statusClass;
+            if (isUnspecified) {
+                itemClass += ' unspecified';
+            } else if (isTemporary) {
+                itemClass += ' temporary-assignment';
+            }
 
             return `
                 <div class="passenger-item ${itemClass}">
                     <div class="passenger-info">
                         <span class="passenger-name">${passenger.name}</span>
                         <span class="passenger-status ${statusClass}">${statusText}</span>
+                        ${isTemporary ? '<span class="temporary-badge">임시배정</span>' : ''}
                     </div>
-                    <div class="seat-number">${seatText}</div>
+                    <div class="seat-number ${isUnspecified ? 'unspecified-seat' : ''} ${isTemporary ? 'temporary-seat' : ''}">${seatText}</div>
                 </div>
             `;
         }).join('');
@@ -511,12 +665,14 @@ class BusSeatManager {
     clearSeats() {
         const seatElements = document.querySelectorAll('.seat[data-seat]');
         seatElements.forEach(seat => {
-            seat.classList.remove('occupied', 'paid', 'pending');
+            seat.classList.remove('occupied', 'paid', 'pending', 'temporary-assignment');
             seat.removeAttribute('data-passenger-name');
             seat.removeAttribute('title');
             // 인라인 스타일 초기화
             seat.style.backgroundColor = '';
             seat.style.borderColor = '';
+            seat.style.borderStyle = '';
+            seat.style.borderWidth = '';
             seat.style.opacity = '';
         });
     }
@@ -546,13 +702,19 @@ class BusSeatManager {
         const pendingPassengers = this.passengers.filter(p => p.paymentStatus === 'pending').length;
         // 좌석이 배정된 승객 수 계산
         const assignedSeats = this.passengers.filter(p => p.seatNumber !== null).length;
+        const temporaryAssignments = this.passengers.filter(p => p.isTemporaryAssignment).length;
+        const confirmedSeats = assignedSeats - temporaryAssignments;
+        const unassignedPassengers = this.passengers.filter(p => p.seatNumber === null).length;
         const emptySeats = 28 - assignedSeats;
 
         return {
             total: totalPassengers,
             paid: paidPassengers,
             pending: pendingPassengers,
-            empty: emptySeats
+            empty: emptySeats,
+            unassigned: unassignedPassengers,
+            temporary: temporaryAssignments,
+            confirmed: confirmedSeats
         };
     }
 
@@ -567,12 +729,15 @@ class BusSeatManager {
 document.addEventListener('DOMContentLoaded', () => {
     window.busSeatManager = new BusSeatManager();
     
-    // 예시 데이터 (개발용)
+    // 예시 데이터 (개발용) - 다양한 입력 형식 지원
     const exampleData = `1. 김진욱(입완, 양재, 1)
-2. 나정선(예정, 사당, 3)
-3. 박민수(입완, 강남, 5)
-4. 이영희(예정, 서초, 7)
-5. 최철수(입완, 논현, 10)`;
+2. 나정선(사당, 예정, 3)
+3. 박민수(5, 죽전, 입완)
+4. 이영희(신갈, 미정, 예정)
+5. 최철수(복정, 입완, 맘대로)
+6. 정민수(양재, 입완)
+7. 강수진(죽전, 예정, 임의배정)
+8. 홍길동(사당, 입완, 아무대나)`;
     
     // 개발 모드에서 예시 데이터 자동 입력 (주석 해제하여 사용)
     // document.getElementById('textInput').value = exampleData;
